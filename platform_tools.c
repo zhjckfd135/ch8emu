@@ -197,6 +197,9 @@ static void* input_thread(void* arg)
 
     while (1)
     {
+	for (int i = 0; i < 256; i++)
+	    key_state[i] = 0;
+	
     	if (read(STDIN_FILENO, &c, 1) == 1)
 	    key_state[(unsigned char)c] = 1;
 
@@ -208,6 +211,8 @@ static void* input_thread(void* arg)
 
 void init_terminal()
 {
+    enable_raw_mode();    
+
     printf("\x1b[?251");
     setvbuf(stdout, NULL, _IONBF, 0);
     

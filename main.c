@@ -52,7 +52,7 @@ const uint8_t CH8_FONTSET[CH8_FONTSET_SIZE][5] =
 
 const int CH8_KEYMAP[CH8_KEYMAP_SIZE] =
 {
-    'X', '1', '2', '3', 'Q', 'W', 'E', 'A', 'S', 'D', 'Z', 'C', '4', 'R', 'F', 'V'
+    'x', '1', '2', '3', 'q', 'w', 'e', 'a', 's', 'd', 'z', 'c', '4', 'r', 'f', 'v'
 };
 
 //## TYPEDEFS ##
