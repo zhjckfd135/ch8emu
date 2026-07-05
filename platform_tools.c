@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include "platform_tools.h"
 
+#define SAMPLE_RATE 44100
+
 char use_unicode = 0;
 char sound_active = 0;
 char sound_mute = 0;
@@ -11,8 +13,6 @@ char sound_mute = 0;
 #include <mmsystem.h>
 
 #pragma comment(lib, "winmm.lib")
-
-#define SAMPLE_RATE 44100
 
 static WORD to_win_color(ConsoleColor color)
 {
@@ -273,8 +273,53 @@ int get_press(int key)
     return key_state[(unsigned char)key];
 }
 
+#include <alsa/asoundlib.h>
+
+static snd_pcm_t *pcm;
+
+static void* audio_thread(void* arg)
+{
+    snd_pcm_open(&pcm, "default", SND_PCM_STREAM_PLAYBACK, 0);
+
+    snd_pcm_set_params(
+	pcm,
+	SND_PCM_FORMAT_U8,
+	SND_PCM_ACCESS_RW_INTERLEAVED,
+	1,
+	SAMPLE_RATE,
+	1,
+	10000
+    );
+
+    unsigned char buffer[1024];
+
+    int toggle = 0;
+
+    while (1)
+    {
+        if (sound_mute)
+	{
+            memset(buffer, 128, sizeof(buffer));
+	}
+	else
+	{
+	    for (int i = 0; i < 1024; i++)
+	    {
+	    	buffer[i] = sound_active ? ((i & 32) ? 135 : 120) : 128;
+	    }
+	}
+
+	snd_pcm_writei(pcm, buffer, 1024);
+    }
+
+    return NULL;
+}
+
 void init_audio()
 {
+    pthread_t t;
+    pthread_create(&t, NULL, audio_thread, NULL);
+    pthread_detach(t);
 }
 
 #endif

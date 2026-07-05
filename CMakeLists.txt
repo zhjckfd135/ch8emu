@@ -13,3 +13,11 @@ add_executable(ch8emu
 target_include_directories(ch8emu PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+if (WIN32)
+	target_link_libraries(ch8emu PRIVATE winmm)
+endif()
+
+if (UNIX AND NOT APPLE)
+	target_link_libraries(ch8emu PRIVATE asound)
+endif()
