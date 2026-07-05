@@ -73,6 +73,10 @@ void delay(int milliseconds)
     Sleep(milliseconds);
 }
 
+void reset_input()
+{
+}
+
 int get_press(int key)
 {
     return (GetAsyncKeyState(key) & 0x8000) ? 1 : 0;
@@ -152,8 +156,13 @@ void init_audio()
 #include <pthread.h>
 #include <time.h>
 
+#define KEY_COUNT 256
+#define HOLD_TIMEOUT 0.12
+
 static struct termios orig_termios;
-static volatile int key_state[256] = {0};
+
+static unsigned char key_state[KEY_COUNT];
+static double key_last_seen[KEY_COUNT];
 
 void print_color_text(const char* message, ConsoleColor color)
 {
@@ -175,6 +184,13 @@ void print_color_text(const char* message, ConsoleColor color)
     printf("%s%s\x1b[0m\n", col, message);
 }
 
+double now()
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+
 static void disable_raw_mode()
 {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
@@ -187,26 +203,50 @@ static void enable_raw_mode()
 
     struct termios raw = orig_termios;
     raw.c_lflag &= ~(ICANON | ECHO);
+    raw.c_cc[VMIN] = 0;
+    raw.c_cc[VTIME] = 0;
 
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
-static void* input_thread(void* arg)
+static void input_update()
 {
     char c;
+    double t = now();
 
+    while (read(STDIN_FILENO, &c, 1) == 1)
+    {
+        unsigned char k = (unsigned char)c;
+
+	key_state[k] = 1;
+	key_last_seen[k] = t;
+    }
+
+    for (int i = 0; i < KEY_COUNT; i++)
+    {
+        if (key_state[i] && (t - key_last_seen[i]) > HOLD_TIMEOUT && read(STDIN_FILENO, &c, 1) == 0)
+	    key_state[i] = 0;
+    }
+}
+
+static void* input_thread(void* arg)
+{
     while (1)
     {
-	for (int i = 0; i < 256; i++)
-	    key_state[i] = 0;
-	
-    	if (read(STDIN_FILENO, &c, 1) == 1)
-	    key_state[(unsigned char)c] = 1;
-
-	usleep(100);
+	input_update();
+	usleep(30);
     }
 
     return NULL;
+}
+
+void reset_input()
+{
+    //for (int i = 0; i < 256; i++)
+    //{
+    //    key_state[i] = 0;
+	//key_consumed[i] = 0;
+    //}
 }
 
 void init_terminal()
@@ -231,13 +271,6 @@ void delay(int milliseconds)
 int get_press(int key)
 {
     return key_state[(unsigned char)key];
-}
-
-double now()
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
 void init_audio()
