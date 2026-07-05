@@ -121,9 +121,9 @@ void print_help()
 "  [Path to ROM]             Run ROM\n"
 "  -h                        Show arguments list\n"
 "  -d                        Debug mod\n"
-"  --ascii                   Set ASCII display mode"
-"  --mute                    Off audio"
-"  -p                        Print Hex ROM"
+"  --ascii                   Set ASCII display mode\n"
+"  --mute                    Off audio\n"
+"  -p                        Print Hex ROM\n"
 );
     exit(0);
 }
@@ -558,6 +558,7 @@ void chip8_main(Chip8Config* cfg)
     if (cfg->print_hex_rom)
     {
         print_hex_array(rom.bytes, rom.size);
+	printf("\n");
         exit(0);
     }
 
@@ -565,6 +566,8 @@ void chip8_main(Chip8Config* cfg)
     free(rom.bytes);
 
     load_fontset_to_ram(&ch8);
+
+    clear_terminal();
 
     double cpu_acc = 0;
     double timer_acc = 0;
@@ -642,7 +645,6 @@ Chip8Config parse_args(int argc, char** argv)
 int main(int argc, char** argv)
 {
     init_terminal();
-    clear_terminal();
     init_audio();
 
     srand(time(NULL));

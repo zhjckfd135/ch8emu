@@ -1,14 +1,14 @@
+#include <stdio.h>
 #include "platform_tools.h"
 
 char use_unicode = 0;
 char sound_active = 0;
 char sound_mute = 0;
 
-#ifdef _WIN32
+#ifdef defined(_WIN32)
 
 #include <windows.h>
 #include <mmsystem.h>
-#include <stdio.h>
 
 #pragma comment(lib, "winmm.lib")
 
@@ -141,6 +141,102 @@ DWORD WINAPI audio_thread(LPVOID arg)
 void init_audio()
 {
     CreateThread(NULL, 0, audio_thread, NULL, 0, NULL);
+}
+
+#elif defined(__linux__)
+
+#include <stdlib.h>
+#include <unistd.h>
+#include <termios.h>
+#include <sys/time.h>
+#include <pthread.h>
+#include <time.h>
+
+static struct termios orig_termios;
+static volatile int key_state[256] = {0};
+
+void print_color_text(const char* message, ConsoleColor color)
+{
+    const char* col = "\x1b[37m";
+
+    switch(color)
+    {
+
+    	case CONSOLE_BLACK:    col = "\x1b[30m"; break;
+    	case CONSOLE_RED:      col = "\x1b[31m"; break;
+    	case CONSOLE_GREEN:    col = "\x1b[32m"; break;
+    	case CONSOLE_YELLOW:   col = "\x1b[33m"; break;
+    	case CONSOLE_BLUE:     col = "\x1b[34m"; break;
+    	case CONSOLE_MAGENTA:  col = "\x1b[35m"; break;
+    	case CONSOLE_CYAN:     col = "\x1b[36m"; break;
+    	case CONSOLE_WHITE:    col = "\x1b[37m"; break;
+    }
+
+    printf("%s%s\x1b[0m\n", col, message);
+}
+
+static void disable_raw_mode()
+{
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+}
+
+static void enable_raw_mode()
+{
+    tcgetattr(STDIN_FILENO, &orig_termios);
+    atexit(disable_raw_mode);
+
+    struct termios raw = orig_termios;
+    raw.c_lflag &= ~(ICANON | ECHO);
+
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+
+static void* input_thread(void* arg)
+{
+    char c;
+
+    while (1)
+    {
+    	if (read(STDIN_FILENO, &c, 1) == 1)
+	    key_state[(unsigned char)c] = 1;
+
+	usleep(100);
+    }
+
+    return NULL;
+}
+
+void init_terminal()
+{
+    printf("\x1b[?251");
+    setvbuf(stdout, NULL, _IONBF, 0);
+    
+    pthread_t t;
+    pthread_create(&t, NULL, input_thread, NULL);
+    pthread_detach(t);
+
+    use_unicode = 1;
+}
+
+void delay(int milliseconds)
+{
+    usleep(milliseconds * 1000);
+}
+
+int get_press(int key)
+{
+    return key_state[(unsigned char)key];
+}
+
+double now()
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+
+void init_audio()
+{
 }
 
 #endif

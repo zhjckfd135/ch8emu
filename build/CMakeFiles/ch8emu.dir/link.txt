@@ -1,0 +1,1 @@
+/usr/bin/cc -Wl,--dependency-file=CMakeFiles/ch8emu.dir/link.d CMakeFiles/ch8emu.dir/main.c.o CMakeFiles/ch8emu.dir/platform_tools.c.o -o ch8emu
