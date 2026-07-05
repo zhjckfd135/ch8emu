@@ -7,7 +7,7 @@ char use_unicode = 0;
 char sound_active = 0;
 char sound_mute = 0;
 
-#ifdef defined(_WIN32)
+#if defined(_WIN32)
 
 #include <windows.h>
 #include <mmsystem.h>
