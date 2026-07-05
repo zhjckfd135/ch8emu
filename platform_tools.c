@@ -79,7 +79,10 @@ void reset_input()
 
 int get_press(int key)
 {
-    return (GetAsyncKeyState(key) & 0x8000) ? 1 : 0;
+    SHORT vk = VkKeyScanA(key);
+    if (vk == -1) return 0;
+
+    return (GetAsyncKeyState(vk & 0xFF) & 0x8000) ? 1 : 0;
 }
 
 double now()
