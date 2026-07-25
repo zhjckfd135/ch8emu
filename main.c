@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdarg.h>
 #include <string.h>
+#include <stdbool.h>
 #include <time.h>
 #include "platform_tools.h"
 
@@ -26,7 +27,7 @@
 #define CH8_MAX_FILL_LEN 4
 #define CH8_CPU_HZ 700.0
 #define CH8_TIMER_HZ 60.0
-#define CH8_FRAME_HZ 500.0
+#define CH8_FRAME_HZ 60.0
 
 //## CONSTS ##
 
@@ -57,13 +58,6 @@ const int CH8_KEYMAP[CH8_KEYMAP_SIZE] =
 
 //## TYPEDEFS ##
 
-typedef enum
-{
-    CH8_OK = 0,
-    CH8_ERR_FILE,
-    CH8_ERR_RAM_OVERFLOW
-} Chip8Result;
-
 typedef struct
 {
     const char* rom_path;
@@ -76,6 +70,9 @@ typedef struct
 {
     uint8_t display[CH8_SCREEN_WIDTH * CH8_SCREEN_HEIGHT];
     uint16_t keys;
+    bool wait_for_vblank;    
+    int waiting_key;
+    // Let it stay this way for now, but these two variables should not be there in the future.
 
     uint8_t ram[CH8_RAM_SIZE];
     uint8_t V[CH8_V_SIZE];
@@ -90,16 +87,6 @@ typedef struct
     uint16_t stack[CH8_STACK_SIZE];
 } Chip8;
 
-typedef struct
-{
-    uint8_t* bytes;
-    long size;
-} Chip8ROM;
-
-typedef struct {
-    char lines[CH8_DEBUG_LINES][CH8_DEBUG_LINE_LEN];
-} Chip8DebugView;
-
 //## UTILS ##
 
 void error_exit(const char* message)
@@ -111,20 +98,22 @@ void error_exit(const char* message)
 void print_help()
 {
     printf(
-"  ____ _     _        ___  \n"
-" / ___| |__ (_)_ __  ( _ ) \n"
-"| |   | '_ \\| | '_ \\ / _ \\ \n"
-"| |___| | | | | |_) | (_) |\n"
-" \\____|_| |_|_| .__/ \\___/ \n"
-"              |_|           \n\n"
-"Usage:\n"
-"  [Path to ROM]             Run ROM\n"
-"  -h                        Show arguments list\n"
-"  -d                        Debug mod\n"
-"  --ascii                   Set ASCII display mode\n"
-"  --mute                    Off audio\n"
-"  -p                        Print Hex ROM\n"
-);
+        "      _     _____                      \n"
+        "     | |   |  _  |                     \n"
+        "  ___| |__  \\ V /  ___ _ __ ___  _   _ \n"
+        " / __| '_ \\ / _ \\ / _ \\ '_ ` _ \\| | | |\n"
+        "| (__| | | | |_| |  __/ | | | | | |_| |\n"
+        " \\___|_| |_|\\___/\\___|_| |_| |_|\\__,_|\n"
+        " by zhjckfd\n"
+        "\n"
+        " Usage:\n"
+        "    [Path to ROM]             Run ROM\n"
+        "    -h                        Show arguments list\n"
+        "    -d                        Debug mod\n"
+        "    -p                        Print Hex ROM\n"
+        "    --ascii                   Set ASCII display mode\n"
+        "    --mute                    Off audio\n"
+    );
     exit(0);
 }
 
@@ -134,24 +123,24 @@ void print_hex_array(uint8_t* bytes, long len)
         printf("%02X ", (uint8_t)bytes[i]);
 }
 
-void build_debug_lines(Chip8DebugView* d, Chip8* ch8)
+void build_debug_lines(char (*lines)[CH8_DEBUG_LINE_LEN], Chip8* ch8)
 {
     uint16_t opcode = (ch8->ram[ch8->PC] << 8) | ch8->ram[ch8->PC + 1];
 
-    snprintf(d->lines[0], CH8_DEBUG_LINE_LEN, "       DEBUG MODE       ", ch8->PC, opcode);
+    snprintf(lines[0], CH8_DEBUG_LINE_LEN, "       DEBUG MODE       ", ch8->PC, opcode);
 
-    snprintf(d->lines[1], CH8_DEBUG_LINE_LEN, "PC: %04X OP: %04X%*s", ch8->PC, opcode, 8, "");
-    snprintf(d->lines[2], CH8_DEBUG_LINE_LEN, "I : %04X SP: %02X%*s", ch8->I, ch8->SP, 8, "");
-    snprintf(d->lines[3], CH8_DEBUG_LINE_LEN, "DT: %02X ST: %02X%*s", ch8->delay_timer, ch8->sound_timer, 10, "");
-    snprintf(d->lines[4], CH8_DEBUG_LINE_LEN, "KEYS: %04X%*s", ch8->keys, 13, "");
+    snprintf(lines[1], CH8_DEBUG_LINE_LEN, "PC: %04X OP: %04X%*s", ch8->PC, opcode, 8, "");
+    snprintf(lines[2], CH8_DEBUG_LINE_LEN, "I : %04X SP: %02X%*s", ch8->I, ch8->SP, 8, "");
+    snprintf(lines[3], CH8_DEBUG_LINE_LEN, "DT: %02X ST: %02X%*s", ch8->delay_timer, ch8->sound_timer, 10, "");
+    snprintf(lines[4], CH8_DEBUG_LINE_LEN, "KEYS: %04X%*s", ch8->keys, 13, "");
 
     for (int i = 5; i < CH8_DEBUG_LINES; i++)
-        memset(d->lines[i], 0, CH8_DEBUG_LINE_LEN);
+        memset(lines[i], 0, CH8_DEBUG_LINE_LEN);
 
     int l = 4;
     for (int i = 0; i < 16; i += 4)
     {
-        snprintf(d->lines[l], CH8_DEBUG_LINE_LEN,
+        snprintf(lines[l], CH8_DEBUG_LINE_LEN,
             "V%X:%02X V%X:%02X V%X:%02X V%X:%02X",
             i,   ch8->V[i],
             i+1, ch8->V[i+1],
@@ -169,8 +158,8 @@ void print_display(Chip8* ch8, char debug_mode)
     static char buffer[CH8_LINE_LEN * CH8_SCREEN_HEIGHT + 1];
     char* p = buffer;
 
-    static Chip8DebugView dbg;
-    build_debug_lines(&dbg, ch8);
+    char lines[CH8_DEBUG_LINES][CH8_DEBUG_LINE_LEN];
+    build_debug_lines(lines, ch8);
 
     for (int y = 0; y < CH8_SCREEN_HEIGHT; y++)
     {
@@ -199,7 +188,7 @@ void print_display(Chip8* ch8, char debug_mode)
         if (debug_mode)
         {
             if (y < CH8_DEBUG_LINES)
-                p += sprintf(p, " | %s", dbg.lines[y]);
+                p += sprintf(p, " | %s", lines[y]);
             else
                 p += sprintf(p, " |");
         }
@@ -215,33 +204,27 @@ void print_display(Chip8* ch8, char debug_mode)
 
 //## ROM ##
 
-Chip8Result file_to_bytes(const char* path, Chip8ROM* rom)
+bool file_to_bytes(const char* path, uint8_t** romBytes, long* romSize)
 {
     FILE* fileptr;
-    uint8_t* buffer;
-    long filelen;
-
     fileptr = fopen(path, "rb");
     if (!fileptr)
-        return CH8_ERR_FILE;
+        return false;
 
     fseek(fileptr, 0, SEEK_END);
-    filelen = ftell(fileptr);
+    *romSize = ftell(fileptr);
     rewind(fileptr);
 
-    buffer = (uint8_t*)malloc(filelen * sizeof(uint8_t));
-    if (!buffer)
+    *romBytes = (uint8_t*)malloc(*romSize * sizeof(uint8_t));
+    if (!*romBytes)
     {
         fclose(fileptr);
-        return CH8_ERR_FILE;
+        return false;
     }
-    fread(buffer, 1, filelen, fileptr);
+    fread(*romBytes, 1, *romSize, fileptr);
     fclose(fileptr);
 
-    rom->bytes = buffer;
-    rom->size = filelen;
-
-    return CH8_OK;
+    return true;
 }
 
 //## CHIP8 CORE ##
@@ -251,6 +234,7 @@ Chip8 init_chip8()
     Chip8 ch8 =  {0};
 
     ch8.keys = 0;
+    ch8.waiting_key = -1;
 
     ch8.PC = CH8_START_ADDRESS;
     ch8.SP = 0;
@@ -262,17 +246,17 @@ Chip8 init_chip8()
     return ch8;
 }
 
-Chip8Result load_rom_to_ram(Chip8* ch8, Chip8ROM rom)
+bool load_rom_to_ram(Chip8* ch8, const uint8_t* bytes, const long size)
 {
-    for (long i = 0; i < rom.size; i++)
+    for (long i = 0; i < size; i++)
     {
         if (i + CH8_START_ADDRESS >= CH8_RAM_SIZE)
-            return CH8_ERR_RAM_OVERFLOW;
+            return false;
 
-        ch8->ram[i + CH8_START_ADDRESS] = rom.bytes[i];
+        ch8->ram[i + CH8_START_ADDRESS] = bytes[i];
     }
 
-    return CH8_OK;
+    return true;
 }
 
 void load_fontset_to_ram(Chip8* ch8)
@@ -301,21 +285,27 @@ void display_draw(Chip8* ch8, uint16_t opcode)
     uint8_t y = (opcode & 0x00F0) >> 4;
     uint8_t n = (opcode & 0x000F);
 
-    uint8_t vx = ch8->V[x];
-    uint8_t vy = ch8->V[y];
+    uint8_t vx = ch8->V[x] % CH8_SCREEN_WIDTH;
+    uint8_t vy = ch8->V[y] % CH8_SCREEN_HEIGHT;
 
     ch8->V[0xF] = 0;
 
     for (int i = 0; i < n; i++)
     {
+        if (vy + i >= CH8_SCREEN_HEIGHT)
+            break;
+
         uint8_t sprite_byte = ch8->ram[ch8->I + i];
 
         for (int j = 0; j < 8; j++)
         {
+            if (vx + j >= CH8_SCREEN_WIDTH)
+                break;
+
             if (sprite_byte & (0x80 >> j))
             {
-                uint16_t px = (vx + j) % CH8_SCREEN_WIDTH;
-                uint16_t py = (vy + i) % CH8_SCREEN_HEIGHT;
+                uint16_t px = vx + j;
+                uint16_t py = vy + i;
 
                 if (ch8->display[py * CH8_SCREEN_WIDTH + px] == 1)
                     ch8->V[0xF] = 1;
@@ -343,7 +333,7 @@ void opcode_runtime(Chip8* ch8, uint16_t opcode)
         }
         else // SYS addr
         {
-            ch8->PC = (opcode & 0x0FFF);
+            //ch8->PC = (opcode & 0x0FFF);
         }
         break;
     case 0x1000: // JP addr
@@ -392,36 +382,63 @@ void opcode_runtime(Chip8* ch8, uint16_t opcode)
             break;
         case 0x8001: // OR Vx, Vy
             ch8->V[x] = ch8->V[x] | ch8->V[y];
+            ch8->V[CH8_VF] = 0;
             break;
         case 0x8002: // AND Vx, Vy
             ch8->V[x] = ch8->V[x] & ch8->V[y];
+            ch8->V[CH8_VF] = 0;
             break;
         case 0x8003: // XOR Vx, Vy
             ch8->V[x] = ch8->V[x] ^ ch8->V[y];
+            ch8->V[CH8_VF] = 0;
             break;
         case 0x8004: // ADD Vx, Vy
         {
             uint16_t sum = ch8->V[x] + ch8->V[y];
-            ch8->V[CH8_VF] = (sum > 0xFF);
             ch8->V[x] = sum & 0xFF;
+            ch8->V[CH8_VF] = (sum > 0xFF);
             break;
         }
         case 0x8005: // SUB Vx, Vy
-            ch8->V[CH8_VF] = (ch8->V[x] > ch8->V[y]);
-            ch8->V[x] = ch8->V[x] - ch8->V[y];
+        {
+            uint8_t vx = ch8->V[x];
+            uint8_t vy = ch8->V[y];
+            
+            ch8->V[x] = vx - vy;
+            ch8->V[CH8_VF] = (vx >= vy);
             break;
-        case 0x8006: // SHR Vx
-            ch8->V[CH8_VF] = ch8->V[x] & 1;
-            ch8->V[x] = ch8->V[x] >> 1;
+        }
+        case 0x8006: // SHR Vx or SHR Vx, Vy
+        {
+            //uint8_t lsb = ch8->V[x] & 1;
+            //ch8->V[x] = ch8->V[x] >> 1;
+            //ch8->V[CH8_VF] = lsb;
+            uint8_t vy = ch8->V[y];
+
+            ch8->V[x] = vy >> 1;
+            ch8->V[CH8_VF] = vy & 1;
             break;
+        }
         case 0x8007: // SUBN Vx, Vy
-            ch8->V[CH8_VF] = (ch8->V[y] >= ch8->V[x]);
-            ch8->V[x] = ch8->V[y] - ch8->V[x];
+        {
+            uint8_t vx = ch8->V[x];
+            uint8_t vy = ch8->V[y];
+            
+            ch8->V[x] = vy - vx;
+            ch8->V[CH8_VF] = (vy >= vx);
             break;
-        case 0x800E: // SHL Vx
-            ch8->V[CH8_VF] = ch8->V[x] >> 7;
-            ch8->V[x] = ch8->V[x] << 1;
+        }
+        case 0x800E: // SHL Vx or SHR Vx, Vy
+        {
+            //uint8_t msb = ch8->V[x] >> 7;
+            //ch8->V[x] = ch8->V[x] << 1;
+            //ch8->V[CH8_VF] = msb;
+            uint8_t vy = ch8->V[y];
+
+            ch8->V[x] = vy << 1;
+            ch8->V[CH8_VF] = vy >> 7;
             break;
+        }
         default:
             unknown_opcode_error(ch8, opcode);
             break;
@@ -446,7 +463,14 @@ void opcode_runtime(Chip8* ch8, uint16_t opcode)
         ch8->V[x] = (rand() % 256) & k;
         break;
     case 0xD000: // DRW Vx, Vy, nibble
+        if (ch8->wait_for_vblank)
+        {
+            ch8->PC -= 2;
+            return;
+        }
+
         display_draw(ch8, opcode);
+        ch8->wait_for_vblank = true;
         break;
     case 0xE000:
         x = (opcode & 0x0F00) >> 8;
@@ -454,13 +478,21 @@ void opcode_runtime(Chip8* ch8, uint16_t opcode)
         switch (opcode & 0xF0FF)
         {
             case 0xE09E: // SKP Vx
-                if (ch8->keys & (1 << ch8->V[x]))
+            {
+                uint8_t key = ch8->V[x] & 0xF;
+                
+                if (ch8->keys & (1 << key))
                     ch8->PC += 2;
                 break;
+            }
             case 0xE0A1: // SKNP Vx
-                if (!(ch8->keys & (1 << ch8->V[x])))
+            {
+                uint8_t key = ch8->V[x] & 0xF;
+
+                if (!(ch8->keys & (1 << key)))
                     ch8->PC += 2;
                 break;
+            }
             default:
                 unknown_opcode_error(ch8, opcode);
                 break;
@@ -473,16 +505,33 @@ void opcode_runtime(Chip8* ch8, uint16_t opcode)
                 ch8->V[x] = ch8->delay_timer;
                 break;
             case 0xF00A: // LD Vx, K
-                for (int i = 0; i < 16; i++)
+                if (ch8->waiting_key == -1) 
                 {
-                    if (ch8->keys & (1 << i))
+                    for (int i = 0; i < 16; i++)
                     {
-                        ch8->V[x] = i;
-                        return;
+                        if (ch8->keys & (1 << i))
+                        {
+                            ch8->waiting_key = i;
+                            break;
+                        }
+                    }
+                    
+                    if (ch8->waiting_key == -1)
+                    {
+                        ch8->PC -= 2;
+                        break;
                     }
                 }
 
-                ch8->PC -= 2;
+
+                if (ch8->keys & (1 << ch8->waiting_key))
+                {
+                    ch8->PC -= 2;
+                    break;
+                }
+
+                ch8->V[x] = ch8->waiting_key;
+                ch8->waiting_key = -1;
                 break;
             case 0xF015: // LD DT, Vx
                 ch8->delay_timer = ch8->V[x];
@@ -494,25 +543,25 @@ void opcode_runtime(Chip8* ch8, uint16_t opcode)
                 ch8->I += ch8->V[x];
                 break;
             case 0xF029: // LD F, Vx
-                ch8->I = ch8->V[x] * 5;
+                ch8->I = (ch8->V[x] & 0xF) * 5;
                 break;
             case 0xF033: // LD B, Vx
                 uint8_t value = ch8->V[x];
 
-                ch8->ram[ch8->I]     = value / 100;
-                ch8->ram[ch8->I + 1] = (value / 10) % 10;
-                ch8->ram[ch8->I + 2] = value % 10;
+                ch8->ram[(ch8->I) & 0xFFF]     = value / 100;
+                ch8->ram[(ch8->I + 1) & 0xFFF] = (value / 10) % 10;
+                ch8->ram[(ch8->I + 2) & 0xFFF] = value % 10;
 
                 break;
             case 0xF055: // LD [I], Vx
                 for (int i = 0; i <= x; i++)
-                    ch8->ram[ch8->I + i] = ch8->V[i];
-
+                    ch8->ram[(ch8->I + i) & 0xFFF] = ch8->V[i];
+                ch8->I += x + 1;
                 break;
             case 0xF065: // LD Vx, [I]
                 for (int i = 0; i <= x; i++)
-                    ch8->V[i] = ch8->ram[ch8->I + i];
-
+                    ch8->V[i] = ch8->ram[(ch8->I + i) & 0xFFF];
+                ch8->I += x + 1;
                 break;
             default:
                 unknown_opcode_error(ch8, opcode);
@@ -552,18 +601,19 @@ void update_timer(Chip8 *ch8)
 void chip8_main(Chip8Config* cfg)
 {
     Chip8 ch8 = init_chip8();
-    Chip8ROM rom = {0};
+    uint8_t* romBytes;
+    long romSize;
 
-    if (file_to_bytes(cfg->rom_path, &rom) != CH8_OK) error_exit("Can't read file");
+    if (!file_to_bytes(cfg->rom_path, &romBytes, &romSize)) error_exit("Can't read file");
     if (cfg->print_hex_rom)
     {
-        print_hex_array(rom.bytes, rom.size);
-	printf("\n");
+        print_hex_array(romBytes, romSize);
+	    printf("\n");
         exit(0);
     }
 
-    if (load_rom_to_ram(&ch8, rom) != CH8_OK) error_exit("RAM overflow");
-    free(rom.bytes);
+    if (!load_rom_to_ram(&ch8, romBytes, romSize)) error_exit("RAM overflow");
+    free(romBytes);
 
     load_fontset_to_ram(&ch8);
 
@@ -593,6 +643,9 @@ void chip8_main(Chip8Config* cfg)
 
         while (cpu_acc >= cpu_time)
         {
+            if (ch8.wait_for_vblank)
+                break;
+            
             uint16_t opcode = (ch8.ram[ch8.PC] << 8) | ch8.ram[ch8.PC + 1];
             ch8.PC += 2;
             opcode_runtime(&ch8, opcode);
@@ -609,6 +662,7 @@ void chip8_main(Chip8Config* cfg)
         if (frame_acc >= frame_time)
         {
             print_display(&ch8, cfg->debug);
+            ch8.wait_for_vblank = false;
             frame_acc -= frame_time;
         }
 
