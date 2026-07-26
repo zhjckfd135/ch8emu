@@ -21,11 +21,11 @@
 #define CH8_DEBUG_LINE_LEN 64
 #define CH8_LINE_LEN (CH8_SCREEN_WIDTH * CH8_MAX_FILL_LEN + 3 + CH8_DEBUG_LINE_LEN + 1)
 #define CH8_VF CH8_V_SIZE-1
-#define CH8_UNICODE_FILL "█"
-#define CH8_ASCII_FILL "#"
-#define CH8_ASCII_FREE ' '
+#define CH8_SYMBOL_FILL "█"
+#define CH8_SYMBOL_FILL_UP "▀"
+#define CH8_SYMBOL_FILL_DOWN "▄"
+#define CH8_SYMBOL_FREE " "
 #define CH8_MAX_FILL_LEN 4
-#define CH8_CPU_HZ 700.0
 #define CH8_TIMER_HZ 60.0
 #define CH8_FRAME_HZ 60.0
 #define CH8_IPF 11 // For now, it will be a constant, but eventually, we'll need to add a flag to change this value.
@@ -112,7 +112,6 @@ void print_help()
         "    -h                        Show arguments list\n"
         "    -d                        Debug mod\n"
         "    -p                        Print Hex ROM\n"
-        "    --ascii                   Set ASCII display mode\n"
         "    --mute                    Off audio\n"
     );
     exit(0);
@@ -162,28 +161,25 @@ void print_display(Chip8* ch8, char debug_mode)
     char lines[CH8_DEBUG_LINES][CH8_DEBUG_LINE_LEN];
     build_debug_lines(lines, ch8);
 
-    for (int y = 0; y < CH8_SCREEN_HEIGHT; y++)
+    for (int y = 0; y < CH8_SCREEN_HEIGHT; y += 2)
     {
-
         for (int x = 0; x < CH8_SCREEN_WIDTH; x++)
         {
-            uint8_t pixel = ch8->display[y * CH8_SCREEN_WIDTH + x];
-            const char *fill = use_unicode ? CH8_UNICODE_FILL : CH8_ASCII_FILL;
+            uint8_t pixel_up = ch8->display[y * CH8_SCREEN_WIDTH + x];
+            uint8_t pixel_down = ch8->display[(y+1) * CH8_SCREEN_WIDTH + x];
+            const char *symbol = CH8_SYMBOL_FREE;
 
-            if (pixel)
-            {
-                size_t len = (use_unicode ? 3 : 1);
+            if (pixel_up && !pixel_down)
+                symbol = CH8_SYMBOL_FILL_UP;
+            else if (!pixel_up && pixel_down)
+                symbol = CH8_SYMBOL_FILL_DOWN;
+            else if (pixel_up && pixel_down)
+                symbol = CH8_SYMBOL_FILL;
 
-                if (p + len < buffer + sizeof(buffer))
-                {
-                    memcpy(p, fill, len);
-                    p += len;
-                }
-            }
-            else
-            {
-                *p++ = CH8_ASCII_FREE;
-            }
+            size_t len = strlen(symbol);
+
+            memcpy(p, symbol, len);
+            p += len;
         }
 
         if (debug_mode)
@@ -617,7 +613,7 @@ void chip8_main(Chip8Config* cfg)
     double timer_acc = 0;
     double frame_time = 0;
     const double timer_time = 1.0 / CH8_TIMER_HZ;
-    const double target_frame_time = 1.0 / 60.0;
+    const double target_frame_time = 1.0 / CH8_FRAME_HZ;
 
     double last = now();
 
@@ -715,7 +711,6 @@ Chip8Config parse_args(int argc, char** argv)
             if (strcmp(flag, "-h") == 0) cfg.help = 1;
             if (strcmp(flag, "-d") == 0) cfg.debug = 1;
             if (strcmp(flag, "-p") == 0) cfg.print_hex_rom = 1;
-            if (strcmp(flag, "--ascii") == 0) use_unicode = 0;
             if (strcmp(flag, "--mute") == 0) sound_mute = 1;
         }
         else

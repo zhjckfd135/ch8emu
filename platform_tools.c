@@ -3,7 +3,6 @@
 
 #define SAMPLE_RATE 44100
 
-char use_unicode = 0;
 char sound_active = 0;
 char sound_mute = 0;
 
@@ -40,11 +39,6 @@ void print_color_text(const char* message, ConsoleColor color)
     SetConsoleTextAttribute(hc, to_win_color(CONSOLE_WHITE));
 }
 
-int is_utf8_console()
-{
-    return GetConsoleOutputCP() == CP_UTF8;
-}
-
 void enable_ansi()
 {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -64,8 +58,6 @@ void init_terminal()
     GetConsoleCursorInfo(hConsole, &cursorInfo);
     cursorInfo.bVisible = FALSE;
     SetConsoleCursorInfo(hConsole, &cursorInfo);
-
-    use_unicode = is_utf8_console();
 
     timeBeginPeriod(1);
 }

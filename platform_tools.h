@@ -12,7 +12,6 @@ typedef enum
     CONSOLE_WHITE
 } ConsoleColor;
 
-extern char use_unicode;
 extern char sound_active;
 extern char sound_mute;
 
