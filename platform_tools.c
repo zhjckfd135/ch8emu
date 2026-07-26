@@ -66,6 +66,8 @@ void init_terminal()
     SetConsoleCursorInfo(hConsole, &cursorInfo);
 
     use_unicode = is_utf8_console();
+
+    timeBeginPeriod(1);
 }
 
 void delay(int milliseconds)

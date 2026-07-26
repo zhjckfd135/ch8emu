@@ -28,6 +28,7 @@
 #define CH8_CPU_HZ 700.0
 #define CH8_TIMER_HZ 60.0
 #define CH8_FRAME_HZ 60.0
+#define CH8_IPF 11 // For now, it will be a constant, but eventually, we'll need to add a flag to change this value.
 
 //## CONSTS ##
 
@@ -463,12 +464,6 @@ void opcode_runtime(Chip8* ch8, uint16_t opcode)
         ch8->V[x] = (rand() % 256) & k;
         break;
     case 0xD000: // DRW Vx, Vy, nibble
-        if (ch8->wait_for_vblank)
-        {
-            ch8->PC -= 2;
-            return;
-        }
-
         display_draw(ch8, opcode);
         ch8->wait_for_vblank = true;
         break;
@@ -619,13 +614,10 @@ void chip8_main(Chip8Config* cfg)
 
     clear_terminal();
 
-    double cpu_acc = 0;
     double timer_acc = 0;
-    double frame_acc = 0;
-
-    const double cpu_time   = 1.0 / CH8_CPU_HZ;
+    double frame_time = 0;
     const double timer_time = 1.0 / CH8_TIMER_HZ;
-    const double frame_time = 1.0 / CH8_FRAME_HZ;
+    const double target_frame_time = 1.0 / 60.0;
 
     double last = now();
 
@@ -634,40 +626,79 @@ void chip8_main(Chip8Config* cfg)
         double current = now();
         double dt = current - last;
         last = current;
-
-        cpu_acc += dt;
-        timer_acc += dt;
-        frame_acc += dt;
+        frame_time = current;
 
         update_keys(&ch8);
 
-        while (cpu_acc >= cpu_time)
+        timer_acc += dt;
+        while (timer_acc >= timer_time)
         {
+            update_timer(&ch8);
+            timer_acc -= timer_time;
+        }
+        
+        for (int i = 0; i < CH8_IPF; i++)
+        {            
             if (ch8.wait_for_vblank)
                 break;
             
             uint16_t opcode = (ch8.ram[ch8.PC] << 8) | ch8.ram[ch8.PC + 1];
             ch8.PC += 2;
             opcode_runtime(&ch8, opcode);
-
-            cpu_acc -= cpu_time;
         }
 
-        while (timer_acc >= timer_time)
-        {
-            update_timer(&ch8);
-            timer_acc -= timer_time;
-        }
-
-        if (frame_acc >= frame_time)
+        if (ch8.wait_for_vblank)
         {
             print_display(&ch8, cfg->debug);
             ch8.wait_for_vblank = false;
-            frame_acc -= frame_time;
         }
 
-        delay(1);
+        double elapsed = now() - frame_time;
+        double remaining = target_frame_time - elapsed;
+        if (remaining > 0)
+            delay((int)(remaining * 1000));
     }
+    
+
+   // while (1)
+   // {
+   //     double current = now();
+   //     double dt = current - last;
+   //     last = current;
+
+   //     cpu_acc += dt;
+   //     timer_acc += dt;
+   //     frame_acc += dt;
+
+   //     update_keys(&ch8);
+
+   //     while (cpu_acc >= cpu_time)
+   //     {
+   //         if (ch8.wait_for_vblank)
+   //             break;
+   //         
+   //         uint16_t opcode = (ch8.ram[ch8.PC] << 8) | ch8.ram[ch8.PC + 1];
+   //         ch8.PC += 2;
+   //         opcode_runtime(&ch8, opcode);
+
+   //         cpu_acc -= cpu_time;
+   //     }
+
+   //     while (timer_acc >= timer_time)
+   //     {
+   //         update_timer(&ch8);
+   //         timer_acc -= timer_time;
+   //     }
+
+   //     if (frame_acc >= frame_time)
+   //     {
+   //         print_display(&ch8, cfg->debug);
+   //         ch8.wait_for_vblank = false;
+   //         frame_acc -= frame_time;
+   //     }
+
+   //     delay(1);
+   // }
 }
 
 //## MAIN LOOP ##
