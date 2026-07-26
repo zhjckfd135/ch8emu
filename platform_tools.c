@@ -213,10 +213,10 @@ static void input_update()
 
     while (read(STDIN_FILENO, &c, 1) == 1)
     {
-        unsigned char k = (unsigned char)c;
+        unsigned char kk = (unsigned char)c;
 
-	key_state[k] = 1;
-	key_last_seen[k] = t;
+	key_state[kk] = 1;
+	key_last_seen[kk] = t;
     }
 
     for (int i = 0; i < KEY_COUNT; i++)
