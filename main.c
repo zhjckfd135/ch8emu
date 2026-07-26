@@ -333,48 +333,68 @@ Chip8Debug create_debug_info(bool enable, Chip8* ch8)
 // 5. Limit frame rate
 void chip8_cycle(Chip8* ch8, Chip8Debug* debug, int ipf)
 {
-    static bool wait_for_vblank;
+static bool wait_for_vblank;
 
     static int frame_count = 0;
     static double fps_timer = 0;
     static double timer_acc = 0;
+
     static const double timer_time = 1.0 / CH8_TIMER_HZ;
     static const double target_frame_time = 1.0 / CH8_FRAME_HZ;
 
     static double last = 0;
+
+    // --- Frame timing ---
+
     double current = now();
-    double frame_time = current;
+
     if (last == 0)
         last = current;
-    
+
     double dt = current - last;
     last = current;
 
+    double frame_start = current;
+
+    // --- Input ---
+
     update_keys(ch8);
 
+    // --- Timers ---
+
     timer_acc += dt;
+
     while (timer_acc >= timer_time)
     {
         update_timer(ch8);
         timer_acc -= timer_time;
     }
-        
+
+    // --- CPU ---
+
     double cpu_start = now();
+
     for (int i = 0; i < ipf; i++)
-    {            
+    {
         if (wait_for_vblank)
             break;
-        
+
         uint16_t opcode = (ch8->ram[ch8->PC] << 8) | ch8->ram[ch8->PC + 1];
         ch8->PC += 2;
+
         if (opcode_execute(ch8, opcode) == EXEC_WAIT_VBLANK)
             wait_for_vblank = true;
 
-        debug->history[debug->history_pos] = opcode;
-        debug->history_pos = (debug->history_pos + 1) % CH8_DEBUG_HISTORY;    
+        if (debug->enable)
+        {
+            debug->history[debug->history_pos] = opcode;
+            debug->history_pos = (debug->history_pos + 1) % CH8_DEBUG_HISTORY;
+        }
     }
 
     debug->cpu_ms = (now() - cpu_start) * 1000.0;
+
+    // --- Display ---
 
     if (wait_for_vblank)
     {
@@ -382,20 +402,24 @@ void chip8_cycle(Chip8* ch8, Chip8Debug* debug, int ipf)
         wait_for_vblank = false;
     }
 
-    double elapsed = now() - frame_time;
+    // --- Frame limiter ---
+
+    double elapsed = now() - frame_start;
     double remaining = target_frame_time - elapsed;
+
     if (remaining > 0)
         delay((int)(remaining * 1000));
 
-    debug->frame_ms =  (now() - frame_time) * 1000.0;
-    
+    debug->frame_ms = (now() - frame_start) * 1000.0;
+
+    // --- FPS counter ---
+
     frame_count++;
     fps_timer += dt;
 
     if (fps_timer >= 1.0)
     {
         debug->fps = frame_count;
-    
         frame_count = 0;
         fps_timer -= 1.0;
     }

@@ -256,8 +256,6 @@ void init_terminal()
     pthread_t t;
     pthread_create(&t, NULL, input_thread, NULL);
     pthread_detach(t);
-
-    use_unicode = 1;
 }
 
 void delay(int milliseconds)
