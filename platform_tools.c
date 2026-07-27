@@ -312,6 +312,16 @@ static void* audio_thread(void* arg)
 
 void init_audio()
 {
+    int err = snd_pcm_open(&pcm, "default", SND_PCM_STREAM_PLAYBACK, 0);
+
+    if (err < 0)
+    {
+        fprintf(stderr, "Audio unavailable, continuing without sound.\n");
+        return;
+    }
+
+    snd_pcm_close(pcm);
+
     pthread_t t;
     pthread_create(&t, NULL, audio_thread, NULL);
     pthread_detach(t);

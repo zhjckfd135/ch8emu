@@ -408,7 +408,9 @@ static bool wait_for_vblank;
     double remaining = target_frame_time - elapsed;
 
     if (remaining > 0)
-        delay((int)(remaining * 1000));
+	// Round to the nearest millisecond instead of truncating
+	// Prevents systematic timing drift between platforms
+        delay((int)(remaining * 1000.0 + 0.5));
 
     debug->frame_ms = (now() - frame_start) * 1000.0;
 
